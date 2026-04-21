@@ -80,7 +80,8 @@ specific findings:
 - **`jira`** — search Jira for bugs against the target version and known upgrade issues
 - **`product-lifecycle`** — if `olm_operator_lifecycle` data is present,
   cross-reference installed operators with Red Hat Product Life Cycle data
-  to check support status, EOL dates, and OCP version compatibility
+  to check support status, EOL dates, and OCP version compatibility.
+  Use `cluster-update/product-lifecycle/scripts/plc_lookup.py olm-check --ocp <target> --operators '<json>'` for batch lookups
 
 ## 4. Decision Policy
 
@@ -142,7 +143,7 @@ Classification rules:
 | etcd health | Any member unhealthy | No recent backup (within 24h) |
 | Network plugin | SDN in use and target requires OVN (4.17+) | Using deprecated SDN (< 4.17) |
 | CRD compatibility | Stored version not served; operator maxOpenShiftVersion < target | Deprecated versions still served |
-| OLM operator lifecycle | Installed operator incompatible with target OCP; operator product EOL (via PLCC) | Operator has pending upgrade; operator product in Maintenance Support (via PLCC) |
+| OLM operator lifecycle | Installed operator incompatible with target OCP; operator product EOL (via Product Life Cycle API) | Operator has pending upgrade; operator product in Maintenance Support (via Product Life Cycle API) |
 
 ### 4.3 Decision Matrix
 
@@ -189,8 +190,8 @@ the operator handles structured output compliance via the LLM API.
 
 - **`jira`** — Search Red Hat Jira for bugs and known issues affecting the target version.
 
-- **`product-lifecycle`** — Query Red Hat Product Life Cycle (PLCC) API to check
-  support status and OCP compatibility for installed operators. Use the operator's
-  `package` name from OLM readiness data to look up PLCC entries via the `package`
-  field (exact match). Flag operators whose product version is End of life or whose
+- **`product-lifecycle`** — Query Red Hat Product Life Cycle API to check
+  support status and OCP compatibility for installed operators. Use
+  `cluster-update/product-lifecycle/scripts/plc_lookup.py olm-check --ocp <target> --operators '<json>'` for batch
+  lookups. Flag operators whose product version is End of life or whose
   `openshift_compatibility` does not include the target OCP version.

@@ -1,9 +1,9 @@
-# PLCC API Reference
+# Product Life Cycle API Reference (v2)
 
 ## Endpoint
 
 ```
-GET https://access.redhat.com/product-life-cycles/api/v1/products?name=<substring>
+GET https://access.redhat.com/product-life-cycles/api/v2/products?name=<substring>
 ```
 
 No authentication required. The `name` parameter is a case-insensitive substring match.
@@ -23,7 +23,7 @@ No authentication required. The `name` parameter is a case-insensitive substring
 ### The `package` field
 
 The `package` field is the OLM package name and provides an **exact match key** to correlate
-PLCC products with OLM Subscriptions. This is more reliable than name matching.
+products with OLM Subscriptions. This is more reliable than name matching.
 
 Mapping: `product.package` == `subscription.spec.name`
 
@@ -32,8 +32,8 @@ Mapping: `product.package` == `subscription.spec.name`
 | Field | Type | Description |
 |---|---|---|
 | `name` | string | Version number (e.g., `"6.5"`, `"4.21"`) |
-| `type` | string | **Current support status**: `"Full Support"`, `"Maintenance Support"`, or `"End of life"` |
-| `openshift_compatibility` | string\|null | Comma-separated OCP versions (e.g., `"4.19, 4.20, 4.21"`) — only on layered products |
+| `type` | string | Current support status (see below) |
+| `openshift_compatibility` | string\|null | Comma-separated OCP versions — only on layered products |
 | `phases` | object[] | Lifecycle phase details with dates |
 
 ### Support status (`type`)
@@ -42,27 +42,31 @@ Mapping: `product.package` == `subscription.spec.name`
 |---|---|
 | `"Full Support"` | Active development, bug fixes, security patches |
 | `"Maintenance Support"` | Critical/security fixes only, no new features |
+| `"Extended Support"` | Similar to Maintenance, may require add-on purchases |
+| `"End of Maintenance"` | Maintenance phase ended, transitioning to EOL |
 | `"End of life"` | No fixes, no support — must upgrade |
 
 ## Phase Object
 
 | Field | Type | Description |
 |---|---|---|
-| `name` | string | Phase name (e.g., `"General availability"`, `"Full support"`, `"Maintenance support"`) |
+| `name` | string | Phase name |
 | `start_date` | string | Phase start — ISO 8601 date or descriptive string |
 | `end_date` | string | Phase end — ISO 8601 date or descriptive string |
-| `date_format` | string | `"date"` (ISO 8601) or `"string"` (relative/TBD) |
+| `start_date_format` | string | `"date"` (ISO 8601) or `"string"` (relative/TBD) |
+| `end_date_format` | string | `"date"` (ISO 8601) or `"string"` (relative/TBD) |
 
 Common phases:
 - **General availability** — when the version was released
 - **Full support** — active development period
 - **Maintenance support** — critical fixes only
-- **Extended update support** — EUS add-on terms (1, 2, 3)
+- **Extended update support** — EUS terms (1, 2, 3)
+- **Extended life cycle support (ELS)** — add-on extended support
 
 ## Search Tips
 
 1. **Be specific with `?name=`** — `"logging+for+Red+Hat+OpenShift"` is better than `"logging"`
-2. **Try former names** — if `"OpenShift Logging"` returns nothing, the product may have been renamed
+2. **Try former names** — if a search returns nothing, the product may have been renamed
 3. **Use `is_operator: true`** to filter for OLM operators in results
 4. **Use `package` for OLM correlation** — more reliable than name matching
 5. **Never omit `?name=`** — the unfiltered response is very large
