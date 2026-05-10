@@ -32,7 +32,7 @@ The workflow is:
 ```
 documentation/
 ├── README.md                 # This file
-├── openshift/                # OpenShift Container Platform docs
+├── openshift-docs/                # OpenShift Container Platform docs
 │   ├── SKILL.md              # Skill definition
 │   ├── README.md             # How to generate, prerequisites, why we convert
 │   ├── convert.py            # AsciiDoc → DocBook → Markdown pipeline
@@ -41,7 +41,7 @@ documentation/
 │       └── 4.22/
 │           ├── AGENTS.md     # Compressed doc index
 │           └── ...           # ~1,700 markdown files
-└── kubernetes/               # Kubernetes docs
+└── kubernetes-docs/               # Kubernetes docs
     ├── SKILL.md              # Skill definition
     ├── README.md             # How to generate, prerequisites, why we convert
     ├── convert.py            # Hugo HTML → Markdown pipeline
@@ -56,7 +56,7 @@ documentation/
 
 Each skill has its own conversion pipeline. See the individual READMEs for prerequisites and usage:
 
-- **OpenShift**: `cd openshift && make docs VERSION=4.22` — converts AsciiDoc via asciidoctor + pandoc
-- **Kubernetes**: `cd kubernetes && make docs VERSION=1.34` — renders Hugo site, then converts HTML via markdownify
+- **OpenShift**: `cd openshift-docs && make docs VERSION=4.22` — converts AsciiDoc via asciidoctor + pandoc
+- **Kubernetes**: `cd kubernetes-docs && make docs VERSION=1.34` — renders Hugo site, then converts HTML via markdownify
 
 Generated docs are committed to the repository so agents can read them without running the conversion pipeline.

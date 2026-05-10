@@ -1,0 +1,155 @@
+- name: anp_max_priority
+  query: "What is the maximum priority value allowed for an AdminNetworkPolicy in OpenShift 4.22?"
+  schema:
+    type: object
+    properties:
+      max_priority:
+        type: integer
+        enum: [49, 99, 100, 255, 999]
+        description: "Maximum ANP priority value. Use the 'openshift-docs' skill to find this."
+    required: [max_priority]
+  expected:
+    max_priority: 99
+
+- name: anp_max_count
+  query: "What is the maximum number of AdminNetworkPolicy resources allowed in an OpenShift 4.22 cluster?"
+  schema:
+    type: object
+    properties:
+      max_count:
+        type: integer
+        enum: [10, 50, 100, 200, 500]
+        description: "Maximum number of ANPs in a cluster. Use the 'openshift-docs' skill to find this."
+    required: [max_count]
+  expected:
+    max_count: 100
+
+- name: banp_required_name
+  query: "What must the name of a BaselineAdminNetworkPolicy resource be in OpenShift 4.22?"
+  schema:
+    type: object
+    properties:
+      required_name:
+        type: string
+        enum: ["default", "baseline", "cluster-default", "banp-default", "global"]
+        description: "Required BANP resource name. Use the 'openshift-docs' skill to find this."
+    required: [required_name]
+  expected:
+    required_name: "default"
+
+- name: banp_action_count
+  query: "How many action values are accepted by the spec.ingress and spec.egress rule fields of a BaselineAdminNetworkPolicy in OpenShift 4.22?"
+  schema:
+    type: object
+    properties:
+      action_count:
+        type: integer
+        enum: [2, 3, 4]
+        description: "Number of BANP action values. Use the 'openshift-docs' skill to find this."
+    required: [action_count]
+  expected:
+    action_count: 2
+
+- name: etcd_encryption_aescbc_key_size
+  query: "What key size in bytes does AES-CBC encryption use for etcd data in OpenShift 4.22?"
+  schema:
+    type: object
+    properties:
+      key_size_bytes:
+        type: integer
+        enum: [16, 24, 32, 64, 128]
+        description: "AES-CBC key size in bytes for etcd encryption. Use the 'openshift-docs' skill to find this."
+    required: [key_size_bytes]
+  expected:
+    key_size_bytes: 32
+
+- name: etcd_encryption_key_rotation
+  query: "How often are etcd encryption keys rotated in OpenShift 4.22?"
+  schema:
+    type: object
+    properties:
+      rotation_interval:
+        type: string
+        enum: ["daily", "weekly", "monthly", "quarterly", "annually"]
+        description: "Encryption key rotation frequency. Use the 'openshift-docs' skill to find this."
+    required: [rotation_interval]
+  expected:
+    rotation_interval: "weekly"
+
+- name: ignition_spec_version
+  query: "What Ignition specification version does OpenShift 4.22 support for MachineConfig objects?"
+  schema:
+    type: object
+    properties:
+      ignition_version:
+        type: string
+        enum: ["3.1", "3.2", "3.3", "3.4", "3.5"]
+        description: "Supported Ignition spec version. Use the 'openshift-docs' skill to find this."
+    required: [ignition_version]
+  expected:
+    ignition_version: "3.5"
+
+- name: route_passthrough_lb_default
+  query: "What is the default load-balancing algorithm for TLS passthrough routes in OpenShift 4.22?"
+  schema:
+    type: object
+    properties:
+      default_algorithm:
+        type: string
+        enum: ["random", "source", "roundrobin", "leastconn"]
+        description: "Default LB algorithm for passthrough routes. Use the 'openshift-docs' skill to find this."
+    required: [default_algorithm]
+  expected:
+    default_algorithm: "source"
+
+- name: route_nonpassthrough_lb_default
+  query: "What is the default load-balancing algorithm for non-passthrough routes in OpenShift 4.22?"
+  schema:
+    type: object
+    properties:
+      default_algorithm:
+        type: string
+        enum: ["random", "source", "roundrobin", "leastconn"]
+        description: "Default LB algorithm for non-passthrough routes. Use the 'openshift-docs' skill to find this."
+    required: [default_algorithm]
+  expected:
+    default_algorithm: "random"
+
+- name: aws_worker_instance_type
+  query: "What is the default AWS instance type for worker machines when installing OpenShift 4.22?"
+  schema:
+    type: object
+    properties:
+      instance_type:
+        type: string
+        enum: ["m5.large", "m5.xlarge", "m6i.large", "m6i.xlarge", "m7i.large", "m7i.xlarge"]
+        description: "Default worker instance type on AWS. Use the 'openshift-docs' skill to find this."
+    required: [instance_type]
+  expected:
+    instance_type: "m6i.large"
+
+- name: aws_control_plane_instance_type
+  query: "What is the default AWS instance type for control plane machines when installing OpenShift 4.22?"
+  schema:
+    type: object
+    properties:
+      instance_type:
+        type: string
+        enum: ["m5.large", "m5.xlarge", "m6i.large", "m6i.xlarge", "m7i.large", "m7i.xlarge"]
+        description: "Default control plane instance type on AWS. Use the 'openshift-docs' skill to find this."
+    required: [instance_type]
+  expected:
+    instance_type: "m6i.xlarge"
+
+- name: tls_termination_type_count
+  query: "How many TLS termination types do OpenShift 4.22 routes support?"
+  schema:
+    type: object
+    properties:
+      count:
+        type: integer
+        enum: [2, 3, 4, 5]
+        description: "Number of TLS termination types for routes. Use the 'openshift-docs' skill to find this."
+    required: [count]
+  expected:
+    count: 3
