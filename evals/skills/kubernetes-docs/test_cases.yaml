@@ -1,0 +1,152 @@
+- name: pdb_unhealthy_eviction_default
+  query: "What is the default value of spec.unhealthyPodEvictionPolicy on a PodDisruptionBudget?"
+  schema:
+    type: object
+    properties:
+      default_value:
+        type: string
+        enum: ["IfHealthyBudget", "AlwaysAllow", "NeverAllow", "IfReady"]
+        description: "Default unhealthyPodEvictionPolicy value. Use the 'kubernetes-docs' skill to find this."
+    required: [default_value]
+  expected:
+    default_value: "IfHealthyBudget"
+
+- name: pv_access_mode_count
+  query: "How many PersistentVolume access modes exist in Kubernetes?"
+  schema:
+    type: object
+    properties:
+      count:
+        type: integer
+        enum: [2, 3, 4, 5]
+        description: "Total number of PV access modes. Use the 'kubernetes-docs' skill to find this."
+    required: [count]
+  expected:
+    count: 4
+
+- name: rwop_abbreviation
+  query: "What is the CLI abbreviation for the ReadWriteOncePod PersistentVolume access mode?"
+  schema:
+    type: object
+    properties:
+      abbreviation:
+        type: string
+        enum: ["RWO", "ROX", "RWX", "RWOP", "RWP"]
+        description: "CLI abbreviation for ReadWriteOncePod. Use the 'kubernetes-docs' skill to find this."
+    required: [abbreviation]
+  expected:
+    abbreviation: "RWOP"
+
+- name: deployment_max_unavailable_rounding
+  query: "When maxUnavailable is set as a percentage in a Kubernetes Deployment RollingUpdate strategy, how is the percentage rounded to an absolute number?"
+  schema:
+    type: object
+    properties:
+      rounding:
+        type: string
+        enum: ["up", "down", "nearest"]
+        description: "Rounding direction for maxUnavailable percentage. Use the 'kubernetes-docs' skill to find this."
+    required: [rounding]
+  expected:
+    rounding: "down"
+
+- name: deployment_max_surge_rounding
+  query: "When maxSurge is set as a percentage in a Kubernetes Deployment RollingUpdate strategy, how is the percentage rounded to an absolute number?"
+  schema:
+    type: object
+    properties:
+      rounding:
+        type: string
+        enum: ["up", "down", "nearest"]
+        description: "Rounding direction for maxSurge percentage. Use the 'kubernetes-docs' skill to find this."
+    required: [rounding]
+  expected:
+    rounding: "up"
+
+- name: deployment_progress_deadline_default
+  query: "My deployment seems stuck rolling out. How long does Kubernetes wait before marking it as failed progress?"
+  schema:
+    type: object
+    properties:
+      default_seconds:
+        type: integer
+        enum: [120, 300, 600, 900, 1200]
+        description: "Default value of spec.progressDeadlineSeconds. Use the 'kubernetes-docs' skill to find this value."
+    required: [default_seconds]
+  expected:
+    default_seconds: 600
+
+- name: statefulset_default_pod_management_policy
+  query: "What is the default pod management policy for a Kubernetes StatefulSet?"
+  schema:
+    type: object
+    properties:
+      default_policy:
+        type: string
+        enum: ["OrderedReady", "Parallel", "BestEffort", "Sequential"]
+        description: "Default podManagementPolicy value. Use the 'kubernetes-docs' skill to find this."
+    required: [default_policy]
+  expected:
+    default_policy: "OrderedReady"
+
+- name: statefulset_parallel_affects_updates
+  query: "Does the Parallel pod management policy for a Kubernetes StatefulSet affect update operations?"
+  schema:
+    type: object
+    properties:
+      affects_updates:
+        type: boolean
+        description: "Whether Parallel policy affects updates. Use the 'kubernetes-docs' skill to find this."
+    required: [affects_updates]
+  expected:
+    affects_updates: false
+
+- name: rbac_view_allows_secrets
+  query: "Does the default Kubernetes view ClusterRole allow viewing Secrets?"
+  schema:
+    type: object
+    properties:
+      allows_secrets:
+        type: boolean
+        description: "Whether the view ClusterRole permits reading Secrets. Use the 'kubernetes-docs' skill to find this."
+    required: [allows_secrets]
+  expected:
+    allows_secrets: false
+
+- name: rbac_roleref_mutable
+  query: "Can the roleRef field of an existing RoleBinding be changed in Kubernetes RBAC?"
+  schema:
+    type: object
+    properties:
+      is_mutable:
+        type: boolean
+        description: "Whether roleRef can be changed after creation. Use the 'kubernetes-docs' skill to find this."
+    required: [is_mutable]
+  expected:
+    is_mutable: false
+
+- name: networkpolicy_port_range_field
+  query: "What field name is used in a Kubernetes NetworkPolicy to specify the end of a port range?"
+  schema:
+    type: object
+    properties:
+      field_name:
+        type: string
+        enum: ["endPort", "portRange", "toPort", "maxPort", "portEnd"]
+        description: "Field name for port range end. Use the 'kubernetes-docs' skill to find this."
+    required: [field_name]
+  expected:
+    field_name: "endPort"
+
+- name: pv_recycle_operation
+  query: "What shell command does the Recycle reclaim policy execute on a PersistentVolume?"
+  schema:
+    type: object
+    properties:
+      command:
+        type: string
+        enum: ["rm -rf /thevolume/*", "rm -rf /volume/*", "shred /thevolume/*", "wipefs /thevolume"]
+        description: "Shell command executed by Recycle. Use the 'kubernetes-docs' skill to find this."
+    required: [command]
+  expected:
+    command: "rm -rf /thevolume/*"

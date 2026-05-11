@@ -1,0 +1,5 @@
+You can install a cluster on IBM Power® infrastructure that you provision, by using one of the following methods:
+
+- **[Installing a cluster on IBM Power®](../../installing/installing_ibm_power/installing-ibm-power.xml#installing-ibm-power)**: You can install OpenShift Container Platform on IBM Power® infrastructure that you provision.
+
+- **[Installing a cluster on IBM Power® in a restricted network](../../installing/installing_ibm_power/installing-restricted-networks-ibm-power.xml#installing-restricted-networks-ibm-power)**: You can install OpenShift Container Platform on IBM Power® infrastructure that you provision in a restricted or disconnected network, by using an internal mirror of the installation release content. You can use this method to install a cluster that does not require an active internet connection to obtain the software components. You can also use this installation method to ensure that your clusters only use container images that satisfy your organizational controls on external content.
