@@ -1,9 +1,4 @@
-"""Documentation skill evals.
-
-Discovers skill eval definitions from evals/skills/<skill_name>/ directories.
-Each test case defines its own schema with specific fields and expected values.
-Validation is direct field comparison — no fuzzy matching.
-"""
+"""Auto-discovered skill evals from sibling test_cases.yaml files."""
 
 from __future__ import annotations
 
@@ -15,14 +10,14 @@ import jsonschema
 import pytest
 import yaml
 
-from .framework.runner import RunResult
+from ..framework.runner import RunResult
 
-EVALS_DIR = Path(__file__).parent / "skills"
+SKILLS_DIR = Path(__file__).parent
 
 
 def _discover_test_cases() -> list[pytest.param]:
     params = []
-    for skill_dir in sorted(EVALS_DIR.iterdir()):
+    for skill_dir in sorted(SKILLS_DIR.iterdir()):
         if not skill_dir.is_dir():
             continue
 
@@ -57,7 +52,7 @@ def _discover_test_cases() -> list[pytest.param]:
     "skill_name,case_name,query,output_schema,expected,system_prompt",
     _discover_test_cases(),
 )
-async def test_doc_skill(
+async def test_skill(
     provider_name: str,
     eval_runner: Callable[..., RunResult],
     skill_name: str,
@@ -67,7 +62,6 @@ async def test_doc_skill(
     expected: dict,
     system_prompt: str,
 ) -> None:
-    """Send a documentation query, validate schema, and compare expected values."""
     result = await eval_runner(
         query=query,
         system_prompt=system_prompt,
