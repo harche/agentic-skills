@@ -91,6 +91,24 @@ Assign each finding a severity per the classification table.
 For other checks, treat an issue as a blocker if would cause data loss, a performance regression, or a failed update.
 Treat the issue as a warning if would cause temporary disruption or slow updates.
 
+#### Investigate with other skills
+
+If additional information or context is needed to classify a finding, these skills may be useful:
+
+- **`openshift-docs`** — Read official OpenShift update docs for version-specific
+  procedures and breaking changes.
+
+- **`prometheus`** — Query cluster metrics for trend analysis (etcd latency,
+  CPU headroom, firing alerts).
+
+- **`jira`** — Search Red Hat Jira for bugs and known issues affecting the target version.
+
+- **`product-lifecycle`** — Query Red Hat Product Life Cycle API to check
+  support status and OCP compatibility for installed operators. Use the operator's
+  `package` name from OLM readiness data to look up entries via the `package`
+  field (exact match). Flag operators whose product version is End of life or whose
+  `openshift_compatibility` does not include the target OCP version.
+
 ### Classify overall recommendation
 
 Aggregate finding classification, and and make a decision on the overall assessment:
@@ -106,10 +124,6 @@ Aggregate finding classification, and and make a decision on the overall assessm
 | 1+ | any | `block` |
 | 0 | 1+ | `warn` |
 | 0 | 0 | `recommend` |
-
-### Investigate
-
-Use prometheus, platform-docs, redhat-support, or product-lifecycle skills for deeper analysis.
 
 ### Produce a structured risk report
 
@@ -136,19 +150,3 @@ the operator handles structured output compliance via the LLM API.
    that path exists.
 
 7. **Never recommend force-updating.** If the standard path is blocked, report it.
-
-## Using Other Skills
-
-- **`openshift-docs`** — Read official OpenShift update docs for version-specific
-  procedures and breaking changes.
-
-- **`prometheus`** — Query cluster metrics for trend analysis (etcd latency,
-  CPU headroom, firing alerts).
-
-- **`jira`** — Search Red Hat Jira for bugs and known issues affecting the target version.
-
-- **`product-lifecycle`** — Query Red Hat Product Life Cycle API to check
-  support status and OCP compatibility for installed operators. Use the operator's
-  `package` name from OLM readiness data to look up entries via the `package`
-  field (exact match). Flag operators whose product version is End of life or whose
-  `openshift_compatibility` does not include the target OCP version.
