@@ -1,213 +1,161 @@
-# TSDB Operations Reference
+# TSDB & Cardinality Reference
 
-Analyze, inspect, and manage Prometheus TSDB data.
-
-These commands operate on local TSDB data directories. They are useful for cardinality analysis, debugging storage issues, and backfilling data.
+Analyze TSDB cardinality and server state via the status API. This is the go-to reference for diagnosing cardinality explosions and storage pressure.
 
 ## Table of Contents
 
-1. [Analyze](#analyze)
-2. [List Blocks](#list-blocks)
-3. [Dump Data](#dump-data)
-4. [Create Blocks from Rules](#create-blocks-from-rules)
-5. [Benchmarking](#benchmarking)
-6. [Debug](#debug)
+1. [TSDB Cardinality Stats](#tsdb-cardinality-stats)
+2. [Cardinality via PromQL](#cardinality-via-promql)
+3. [Server Status](#server-status)
+4. [Targets](#targets)
 
 ---
 
-## Analyze
+## TSDB Cardinality Stats
 
-Analyze TSDB block(s) for cardinality, label statistics, and storage efficiency.
+Head-block cardinality statistics: which metrics and labels have the most series.
 
-```bash
-promtool tsdb analyze [flags] [db-path] [block-id]
+```
+GET /api/v1/status/tsdb
 ```
 
-| Flag | Default | Description |
+| Parameter | Default | Description |
 |---|---|---|
-| `--limit` | 20 | Number of items to show per list |
-| `--extended` | false | Run extended analysis |
-| `--match` | | Series selector to filter analysis |
+| `limit` | 10 | Number of items per stat list |
 
-Defaults: `db-path` = `data/`, `block-id` = last block.
-
-### Examples
+**Note:** This endpoint is served by individual Prometheus instances, not aggregated by Thanos Querier. On OpenShift, query a Prometheus pod directly:
 
 ```bash
-# Analyze local TSDB (e.g., from a Prometheus data dir)
-promtool tsdb analyze /path/to/prometheus/data
-
-# Show top 50 metrics by cardinality
-promtool tsdb analyze --limit=50 /path/to/prometheus/data
-
-# Extended analysis
-promtool tsdb analyze --extended /path/to/prometheus/data
-
-# Analyze only specific metrics
-promtool tsdb analyze --match='container_cpu_usage_seconds_total' /path/to/prometheus/data
-
-# Analyze a specific block
-promtool tsdb analyze /path/to/prometheus/data 01ABCDEF12345678
+# Port-forward to a Prometheus instance
+oc port-forward -n openshift-monitoring prometheus-k8s-0 9090:9090 &
+PF_PID=$! && sleep 2 && \
+curl -sk -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:9090/api/v1/status/tsdb" | jq '.data' && \
+kill $PF_PID 2>/dev/null
 ```
 
-### Output Includes
+### Output
 
-- **Block metadata**: min/max time, duration, number of series/samples/chunks
-- **Label pair cardinality**: which label pairs have the most series
-- **Highest cardinality labels**: labels with the most unique values
-- **Highest cardinality metric names**: metrics with the most series
-
-This is the go-to command for diagnosing cardinality explosions.
-
----
-
-## List Blocks
-
-List all TSDB blocks with metadata.
-
-```bash
-promtool tsdb list [flags] [db-path]
+```json
+{
+  "headStats": {
+    "numSeries": 1234567,
+    "numLabelPairs": 98765,
+    "chunkCount": 2345678,
+    "minTime": 1700000000000,
+    "maxTime": 1700007200000
+  },
+  "seriesCountByMetricName":     [{"name": "apiserver_request_duration_seconds_bucket", "value": 50000}, ...],
+  "labelValueCountByLabelName":  [{"name": "id", "value": 12000}, ...],
+  "memoryInBytesByLabelName":    [{"name": "__name__", "value": 1048576}, ...],
+  "seriesCountByLabelValuePair": [{"name": "namespace=openshift-monitoring", "value": 80000}, ...]
+}
 ```
 
-| Flag | Default | Description |
-|---|---|---|
-| `-r` / `--human-readable` | false | Print sizes in human-readable format |
-
-### Examples
+| Field | Diagnoses |
+|---|---|
+| `seriesCountByMetricName` | Which metrics have the most series — the usual cardinality culprits |
+| `labelValueCountByLabelName` | Labels with the most unique values (e.g. `id`, `pod`, request IDs) |
+| `seriesCountByLabelValuePair` | Which label pair contributes the most series |
+| `headStats.numSeries` | Total active series — compare against instance memory |
 
 ```bash
-# List blocks
-promtool tsdb list /path/to/prometheus/data
-
-# Human-readable sizes
-promtool tsdb list -r /path/to/prometheus/data
+# Top 20 metrics by series count
+curl -s "http://localhost:9090/api/v1/status/tsdb?limit=20" \
+  -H "Authorization: Bearer $TOKEN" | \
+  jq -r '.data.seriesCountByMetricName[] | "\(.value)\t\(.name)"'
 ```
 
 ---
 
-## Dump Data
+## Cardinality via PromQL
 
-Dump raw time series data from TSDB blocks.
-
-```bash
-promtool tsdb dump [flags] [db-path]
-```
-
-| Flag | Default | Description |
-|---|---|---|
-| `--min-time` | MinInt64 | Minimum timestamp in milliseconds |
-| `--max-time` | MaxInt64 | Maximum timestamp in milliseconds |
-| `--match` | `{__name__=~'(?s:.*)'}` | Series selector (repeatable) |
-| `--format` | `prom` | Output: `prom` or `seriesjson` |
-
-### Examples
+These work through Thanos Querier (no port-forward needed) and can be scoped with label selectors:
 
 ```bash
-# Dump all data in Prometheus exposition format
-promtool tsdb dump /path/to/prometheus/data
+# Total active series (per Prometheus replica)
+curl -sk -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode 'query=prometheus_tsdb_head_series' \
+  "$PROM_URL/api/v1/query" | jq '.data.result'
 
-# Dump specific metrics
-promtool tsdb dump --match='up' /path/to/prometheus/data
+# Top 15 metrics by series count
+curl -sk -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode 'query=topk(15, count by (__name__)({__name__=~".+"}))' \
+  "$PROM_URL/api/v1/query" | \
+  jq -r '.data.result[] | "\(.value[1])\t\(.metric.__name__)"'
 
-# Dump as JSON
-promtool tsdb dump --format=seriesjson /path/to/prometheus/data
+# Series count for one metric, by namespace
+curl -sk -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode 'query=count by (namespace) (container_cpu_usage_seconds_total)' \
+  "$PROM_URL/api/v1/query" | jq '.data.result'
 
-# Dump a time range (timestamps in milliseconds)
-promtool tsdb dump \
-  --min-time=1700000000000 \
-  --max-time=1700003600000 \
-  /path/to/prometheus/data
+# Ingestion rate (samples/sec)
+curl -sk -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode 'query=rate(prometheus_tsdb_head_samples_appended_total[5m])' \
+  "$PROM_URL/api/v1/query" | jq '.data.result'
+
+# Series churn — new series created per second
+curl -sk -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode 'query=rate(prometheus_tsdb_head_series_created_total[5m])' \
+  "$PROM_URL/api/v1/query" | jq '.data.result'
 ```
 
-### OpenMetrics Format
-
-```bash
-promtool tsdb dump-openmetrics [flags] [db-path]
-```
-
-Same flags as `dump` except no `--format` (always OpenMetrics). Requires `--experimental`.
+**Warning:** `count by (__name__)({__name__=~".+"})` touches every series and is expensive on large clusters. Prefer the `/api/v1/status/tsdb` endpoint when possible, and scope with selectors (e.g. `{namespace="x"}`) when not.
 
 ---
 
-## Create Blocks from Rules
+## Server Status
 
-Backfill recording rules by querying historical data from a running Prometheus and producing TSDB blocks.
-
-```bash
-promtool tsdb create-blocks-from rules [flags] <rule-files...>
-```
-
-| Flag | Default | Description |
-|---|---|---|
-| `--url` | `http://localhost:9090` | Prometheus API URL |
-| `--start` | | Start time (required) |
-| `--end` | 3 hours ago | End time |
-| `--output-dir` | `data/` | Output directory |
-| `--eval-interval` | `60s` | Evaluation interval |
-| `--http.config.file` | | HTTP client config file |
-
-### Examples
+Build, runtime, and configuration info for a Prometheus instance (direct access, not via Thanos):
 
 ```bash
-# Backfill a recording rule for the last 7 days
-promtool tsdb create-blocks-from rules \
-  --url="$PROM_URL" \
-  --http.config.file="$HTTP_CONFIG" \
-  --start="$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-7d +%Y-%m-%dT%H:%M:%SZ)" \
-  --output-dir=/tmp/backfill-blocks \
-  recording-rules.yml
+# Version and build info
+curl -s -H "Authorization: Bearer $TOKEN" "http://localhost:9090/api/v1/status/buildinfo" | jq '.data'
+
+# Runtime info: storage retention, WAL corruptions, goroutines, last config reload
+curl -s -H "Authorization: Bearer $TOKEN" "http://localhost:9090/api/v1/status/runtimeinfo" | jq '.data'
+
+# Active configuration flags (retention, storage path, limits)
+curl -s -H "Authorization: Bearer $TOKEN" "http://localhost:9090/api/v1/status/flags" | jq '.data'
+
+# Full loaded prometheus.yml
+curl -s -H "Authorization: Bearer $TOKEN" "http://localhost:9090/api/v1/status/config" | jq -r '.data.yaml'
 ```
 
-### Import OpenMetrics Data
+Storage health is also exposed as metrics, queryable through Thanos:
 
 ```bash
-promtool tsdb create-blocks-from openmetrics [flags] <input-file> [output-dir]
+# WAL corruptions, compaction failures, blocked storage
+curl -sk -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode 'query={__name__=~"prometheus_tsdb_(wal_corruptions_total|compactions_failed_total|head_truncations_failed_total)"}' \
+  "$PROM_URL/api/v1/query" | jq '.data.result'
 ```
-
-| Flag | Default | Description |
-|---|---|---|
-| `-r` | false | Human-readable output |
-| `-q` | false | Quiet mode |
-| `--label` | | Labels to attach (repeatable) |
 
 ---
 
-## Benchmarking
+## Targets
 
-Benchmark TSDB write performance.
+Scrape target health — which exporters are up, down, or dropped.
 
-```bash
-promtool tsdb bench write [flags]
+```
+GET /api/v1/targets
 ```
 
-| Flag | Default | Description |
+| Parameter | Default | Description |
 |---|---|---|
-| `--out` | `benchout` | Output path |
-| `--metrics` | 10000 | Number of metrics |
-| `--scrapes` | 3000 | Number of scrapes |
-
----
-
-## Debug
-
-Fetch debug information from a running Prometheus server.
+| `state` | all | `active`, `dropped`, or `any` |
+| `scrapePool` | all | Filter by scrape pool name |
 
 ```bash
-promtool debug pprof <server>   # Profiling data
-promtool debug metrics <server> # Current metrics
-promtool debug all <server>     # Everything
+# Down targets with their last error
+curl -sk -G -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode 'state=active' \
+  "$PROM_URL/api/v1/targets" | \
+  jq '.data.activeTargets[] | select(.health != "up") | {job: .labels.job, instance: .labels.instance, lastError}'
+
+# Scrape duration outliers
+curl -sk -G -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode 'state=active' \
+  "$PROM_URL/api/v1/targets" | \
+  jq '.data.activeTargets | sort_by(.lastScrapeDuration) | reverse | .[:10] | .[] | {job: .labels.job, instance: .labels.instance, lastScrapeDuration}'
 ```
-
-All accept `--http.config.file` for authentication.
-
-### Examples
-
-```bash
-# Fetch all debug info
-promtool debug all "$PROM_URL" --http.config.file="$HTTP_CONFIG"
-
-# Profiling data only
-promtool debug pprof "$PROM_URL" --http.config.file="$HTTP_CONFIG"
-```
-
-Output is saved to `debug.tar.gz` in the current directory.

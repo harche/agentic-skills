@@ -1,6 +1,6 @@
 # Cluster Access Reference
 
-How to discover, authenticate to, and connect to Prometheus on Kubernetes and OpenShift clusters.
+How to discover, authenticate to, and connect to Prometheus on Kubernetes and OpenShift clusters with `curl`.
 
 ## Table of Contents
 
@@ -15,8 +15,14 @@ How to discover, authenticate to, and connect to Prometheus on Kubernetes and Op
 
 OpenShift ships a managed monitoring stack with Prometheus behind a Thanos Querier front-end.
 
-### Discover the Thanos Querier Route
+### Discover the Thanos Querier Endpoint
 
+**From inside a cluster pod** (preferred when cluster DNS works):
+```bash
+PROM_URL="https://thanos-querier.openshift-monitoring.svc:9091"
+```
+
+**Via the external route:**
 ```bash
 # List monitoring routes
 oc get route -n openshift-monitoring
@@ -28,7 +34,12 @@ PROM_URL="https://$HOST"
 
 ### Get Bearer Token
 
-**Current user token (simplest):**
+**Inside a pod — use the mounted SA token first:**
+```bash
+TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token 2>/dev/null || true)
+```
+
+**Current user token (outside a pod):**
 ```bash
 TOKEN=$(oc whoami -t 2>/dev/null)
 ```
@@ -44,35 +55,19 @@ oc adm policy add-cluster-role-to-user cluster-monitoring-view -z prometheus-rea
 TOKEN=$(oc create token prometheus-reader -n openshift-monitoring --duration=1h)
 ```
 
-### Create HTTP Config
-
-```bash
-HTTP_CONFIG=$(mktemp /tmp/promtool-http-XXXXXX.yaml)
-cat > "$HTTP_CONFIG" <<EOF
-authorization:
-  type: Bearer
-  credentials: $TOKEN
-tls_config:
-  insecure_skip_verify: true
-EOF
-```
-
 ### Verify Connection
 
 ```bash
-promtool query instant --http.config.file="$HTTP_CONFIG" "$PROM_URL" 'up' | head -5
+curl -sk -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode 'query=up' \
+  "$PROM_URL/api/v1/query" | jq '.status'
 ```
+
+Expect `"success"`. Do **not** probe `/-/healthy` or `/-/ready` — Thanos Querier returns 503 on those.
 
 ### Required RBAC
 
 The requesting account needs the `cluster-monitoring-view` cluster role. Current user (`oc whoami -t`) typically has this if they have cluster-reader or admin access.
-
-### Internal (in-cluster) Access
-
-From within a pod, Thanos Querier is at:
-```
-https://thanos-querier.openshift-monitoring.svc:9091
-```
 
 ---
 
@@ -126,68 +121,35 @@ kubectl port-forward -n "$PROM_NS" \
 PF_PID=$!
 ```
 
-### HTTP Config for Port-Forward
+### Verify and Clean Up
 
 Port-forwarded connections usually don't require auth:
-```bash
-HTTP_CONFIG=$(mktemp /tmp/promtool-http-XXXXXX.yaml)
-cat > "$HTTP_CONFIG" <<EOF
-tls_config:
-  insecure_skip_verify: true
-EOF
-```
-
-If auth is required, extract the token from kubeconfig:
-```bash
-TOKEN=$(kubectl config view --minify --raw -o jsonpath='{.users[0].user.token}')
-cat > "$HTTP_CONFIG" <<EOF
-authorization:
-  type: Bearer
-  credentials: $TOKEN
-tls_config:
-  insecure_skip_verify: true
-EOF
-```
-
-### Verify and Clean Up
 
 ```bash
 # Verify
-promtool query instant --http.config.file="$HTTP_CONFIG" "$PROM_URL" 'up' | head -5
+curl -s --data-urlencode 'query=up' "$PROM_URL/api/v1/query" | jq '.status'
 
 # When done
-rm -f "$HTTP_CONFIG"
 kill $PF_PID 2>/dev/null
 ```
+
+If auth is required, extract the token from kubeconfig (see below) and add the `Authorization` header.
 
 ---
 
 ## Authentication Patterns
 
-### HTTP Config File Schema
+### Curl Auth Flags
 
-The `--http.config.file` YAML supports:
+| Scenario | Flags |
+|---|---|
+| Bearer token (most common for K8s/OCP) | `-H "Authorization: Bearer $TOKEN"` |
+| Basic auth | `-u 'username:password'` |
+| TLS client certificates (mTLS) | `--cert /path/to/client.crt --key /path/to/client.key` |
+| Custom CA | `--cacert /path/to/ca.crt` |
+| Skip TLS verification (last resort) | `-k` |
 
-```yaml
-# Bearer token (most common for K8s/OCP)
-authorization:
-  type: Bearer
-  credentials: <token-string>
-  # OR read from file:
-  credentials_file: /path/to/token
-
-# Basic auth
-basic_auth:
-  username: <string>
-  password: <string>
-
-# TLS client certificates (mTLS)
-tls_config:
-  ca_file: /path/to/ca.crt
-  cert_file: /path/to/client.crt
-  key_file: /path/to/client.key
-  insecure_skip_verify: false
-```
+Prefer `--cacert` over `-k` when a CA bundle is available. Inside an OpenShift pod, the service CA for in-cluster endpoints is typically at `/var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt` (if mounted) — fall back to `-k` for route endpoints with cluster-default certs.
 
 ### Token Extraction from Kubeconfig
 
@@ -213,7 +175,10 @@ The port-forward process may have died. Check `jobs` and restart it.
 Token may have expired. Refresh with `oc whoami -t` (requires `oc login` session) or create a new SA token.
 
 ### "certificate signed by unknown authority"
-Add `insecure_skip_verify: true` to the TLS config, or provide the CA cert via `ca_file`.
+Use `-k`, or provide the CA cert via `--cacert`.
+
+### 503 from Thanos on `/-/healthy` or `/-/ready`
+Expected — Thanos Querier doesn't implement Prometheus's health endpoints. Use a `query=up` request to verify connectivity.
 
 ### "could not find Prometheus service"
 Try broader searches:
@@ -221,3 +186,6 @@ Try broader searches:
 kubectl get svc -A | grep -iE '9090|prom|thanos|monitor'
 kubectl get pods -A | grep -iE 'prom|thanos'
 ```
+
+### In-cluster service unreachable from the pod
+Some sandboxed pods use external DNS and cannot resolve `*.svc` names. Fall back to the external route discovered via `oc get route -n openshift-monitoring thanos-querier`.

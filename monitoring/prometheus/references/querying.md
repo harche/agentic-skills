@@ -1,10 +1,34 @@
 # Querying Reference
 
-All `promtool query` subcommands for querying a Prometheus server.
+The Prometheus HTTP API endpoints for querying a Prometheus or Thanos Querier server.
 
-Every command below requires:
-- `--http.config.file="$HTTP_CONFIG"` for auth (see cluster-access.md)
-- The Prometheus server URL as `$PROM_URL`
+Every command below assumes:
+- `$PROM_URL` — server base URL (see cluster-access.md)
+- `$TOKEN` — bearer token; omit the `Authorization` header for unauthenticated port-forwards
+
+All query endpoints accept both GET and POST. Always use `--data-urlencode` (which implies POST) so PromQL special characters are encoded correctly.
+
+## Response Envelope
+
+Every endpoint returns:
+
+```json
+{"status": "success", "data": { ... }}
+```
+
+or on failure (HTTP 4xx with a body — always check):
+
+```json
+{"status": "error", "errorType": "bad_data", "error": "parse error: ..."}
+```
+
+Guard with jq:
+
+```bash
+... | jq -r 'if .status == "success" then .data else "ERROR: \(.errorType): \(.error)" end'
+```
+
+For query results, `.data.resultType` is `vector` (instant), `matrix` (range), or `scalar`. Sample values are `[<unix-ts>, "<string>"]` — convert with `tonumber`.
 
 ## Table of Contents
 
@@ -12,8 +36,7 @@ Every command below requires:
 2. [Range Query](#range-query)
 3. [Series Discovery](#series-discovery)
 4. [Label Discovery](#label-discovery)
-5. [Metric Analysis](#metric-analysis)
-6. [PromQL Formatting](#promql-formatting)
+5. [Metric Metadata](#metric-metadata)
 
 ---
 
@@ -21,39 +44,47 @@ Every command below requires:
 
 Evaluate a PromQL expression at a single point in time.
 
-```bash
-promtool query instant [flags] <server> <expression>
+```
+POST /api/v1/query
 ```
 
-| Flag | Default | Description |
+| Parameter | Default | Description |
 |---|---|---|
-| `--time` | now | Evaluation time (RFC3339 or Unix timestamp) |
-| `-o` / `--format` | `promql` | Output format: `promql` or `json` |
-| `--http.config.file` | | HTTP client config file |
+| `query` | | PromQL expression (required) |
+| `time` | now | Evaluation time (RFC3339 or Unix timestamp) |
+| `timeout` | server default | Evaluation timeout (e.g. `30s`) |
 
 ### Examples
 
 ```bash
 # Basic query
-promtool query instant --http.config.file="$HTTP_CONFIG" "$PROM_URL" 'up'
-
-# JSON output — promtool outputs a raw JSON array: [{metric:{...}, value:[ts, val]}, ...]
-promtool query instant --http.config.file="$HTTP_CONFIG" -o json "$PROM_URL" 'up' | jq .
+curl -sk -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode 'query=up' \
+  "$PROM_URL/api/v1/query" | jq '.data.result'
 
 # Query at a specific time
-promtool query instant --http.config.file="$HTTP_CONFIG" \
-  --time="2024-01-15T10:00:00Z" \
-  "$PROM_URL" 'up'
+curl -sk -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode 'query=up' \
+  --data-urlencode 'time=2024-01-15T10:00:00Z' \
+  "$PROM_URL/api/v1/query" | jq '.data.result'
 
 # Aggregated query — extract namespace and value
-promtool query instant --http.config.file="$HTTP_CONFIG" -o json \
-  "$PROM_URL" 'sum(rate(container_cpu_usage_seconds_total[5m])) by (namespace)' \
-  | jq '.[] | {namespace: .metric.namespace, value: .value[1]}'
+curl -sk -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode 'query=sum(rate(container_cpu_usage_seconds_total[5m])) by (namespace)' \
+  "$PROM_URL/api/v1/query" | \
+  jq '.data.result[] | {namespace: .metric.namespace, value: .value[1]}'
 
 # Top 10 memory consumers
-promtool query instant --http.config.file="$HTTP_CONFIG" -o json \
-  "$PROM_URL" 'topk(10, container_memory_working_set_bytes{container!=""})' \
-  | jq '.[] | {pod: .metric.pod, namespace: .metric.namespace, bytes: .value[1]}'
+curl -sk -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode 'query=topk(10, container_memory_working_set_bytes{container!=""})' \
+  "$PROM_URL/api/v1/query" | \
+  jq '.data.result[] | {pod: .metric.pod, namespace: .metric.namespace, bytes: .value[1]}'
+
+# Sort results numerically by value
+curl -sk -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode 'query=sum(rate(container_cpu_usage_seconds_total[5m])) by (namespace)' \
+  "$PROM_URL/api/v1/query" | \
+  jq '.data.result | sort_by(.value[1] | tonumber) | reverse'
 ```
 
 ---
@@ -62,34 +93,41 @@ promtool query instant --http.config.file="$HTTP_CONFIG" -o json \
 
 Evaluate a PromQL expression over a time range.
 
-```bash
-promtool query range [flags] <server> <expression>
+```
+POST /api/v1/query_range
 ```
 
-| Flag | Default | Description |
+| Parameter | Default | Description |
 |---|---|---|
-| `--start` | | Start time (RFC3339 or Unix timestamp, required) |
-| `--end` | | End time (RFC3339 or Unix timestamp, required) |
-| `--step` | | Step size (duration like `1m`, `5m`, `1h`, required) |
-| `-o` / `--format` | `promql` | Output format: `promql` or `json` |
-| `--http.config.file` | | HTTP client config file |
+| `query` | | PromQL expression (required) |
+| `start` | | Start time (RFC3339 or Unix timestamp, required) |
+| `end` | | End time (RFC3339 or Unix timestamp, required) |
+| `step` | | Resolution step (duration like `1m`, `5m`, `1h`, required) |
+
+Result type is `matrix`: each series has `values: [[ts, "val"], ...]` instead of a single `value`.
 
 ### Examples
 
 ```bash
 # Last hour, 1-minute resolution (cross-platform: tries GNU date first, falls back to BSD)
-promtool query range --http.config.file="$HTTP_CONFIG" \
-  --start="$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-1H +%Y-%m-%dT%H:%M:%SZ)" \
-  --end="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  --step=1m \
-  "$PROM_URL" 'node_memory_MemAvailable_bytes'
+curl -sk -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode 'query=node_memory_MemAvailable_bytes' \
+  --data-urlencode "start=$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-1H +%Y-%m-%dT%H:%M:%SZ)" \
+  --data-urlencode "end=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --data-urlencode 'step=1m' \
+  "$PROM_URL/api/v1/query_range" | jq '.data.result'
 
-# Last 24 hours, 5-minute resolution
-promtool query range --http.config.file="$HTTP_CONFIG" \
-  --start="$(date -u -d '1 day ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-1d +%Y-%m-%dT%H:%M:%SZ)" \
-  --end="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  --step=5m -o json \
-  "$PROM_URL" 'avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) by (instance)' | jq .
+# Last 24 hours, 5-minute resolution — min/max/last per instance
+curl -sk -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode 'query=avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) by (instance)' \
+  --data-urlencode "start=$(date -u -d '1 day ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-1d +%Y-%m-%dT%H:%M:%SZ)" \
+  --data-urlencode "end=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --data-urlencode 'step=5m' \
+  "$PROM_URL/api/v1/query_range" | \
+  jq '.data.result[] | {instance: .metric.instance,
+       min: ([.values[][1] | tonumber] | min),
+       max: ([.values[][1] | tonumber] | max),
+       last: (.values[-1][1])}'
 ```
 
 ### Choosing Step Size
@@ -99,7 +137,7 @@ promtool query range --http.config.file="$HTTP_CONFIG" \
 - **15m** — daily overview
 - **1h** — weekly/monthly trends
 
-Rule of thumb: aim for 100-500 data points per series.
+Rule of thumb: aim for 100-500 data points per series. Servers reject ranges exceeding ~11,000 points per series.
 
 ---
 
@@ -107,128 +145,108 @@ Rule of thumb: aim for 100-500 data points per series.
 
 Find time series matching label selectors.
 
-```bash
-promtool query series [flags] <server>
+```
+POST /api/v1/series
 ```
 
-| Flag | Default | Description |
+| Parameter | Default | Description |
 |---|---|---|
-| `--match` | | Series selector (required, repeatable) |
-| `--start` | | Start time |
-| `--end` | | End time |
-| `--http.config.file` | | HTTP client config file |
+| `match[]` | | Series selector (required, repeatable) |
+| `start` | | Start time |
+| `end` | | End time |
 
 ### Examples
 
 ```bash
 # All series for a metric
-promtool query series --http.config.file="$HTTP_CONFIG" \
-  --match='container_cpu_usage_seconds_total' \
-  "$PROM_URL"
+curl -sk -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode 'match[]=container_cpu_usage_seconds_total' \
+  "$PROM_URL/api/v1/series" | jq '.data'
 
 # Series in a specific namespace
-promtool query series --http.config.file="$HTTP_CONFIG" \
-  --match='container_cpu_usage_seconds_total{namespace="kube-system"}' \
-  "$PROM_URL"
+curl -sk -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode 'match[]=container_cpu_usage_seconds_total{namespace="kube-system"}' \
+  "$PROM_URL/api/v1/series" | jq '.data'
 
 # Multiple selectors (OR)
-promtool query series --http.config.file="$HTTP_CONFIG" \
-  --match='up' --match='scrape_duration_seconds' \
-  "$PROM_URL"
+curl -sk -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode 'match[]=up' \
+  --data-urlencode 'match[]=scrape_duration_seconds' \
+  "$PROM_URL/api/v1/series" | jq '.data'
 ```
 
 ---
 
 ## Label Discovery
 
-List label names or values.
+List label names or label values.
 
-```bash
-promtool query labels [flags] <server> <label-name>
+```
+POST /api/v1/labels                 # all label names
+GET  /api/v1/label/<name>/values    # values for one label
 ```
 
-| Flag | Default | Description |
+| Parameter | Default | Description |
 |---|---|---|
-| `--start` | | Start time |
-| `--end` | | End time |
-| `--match` | | Restrict to series matching selector (repeatable) |
-| `--http.config.file` | | HTTP client config file |
+| `match[]` | | Restrict to series matching selector (repeatable) |
+| `start` | | Start time |
+| `end` | | End time |
 
 ### Examples
 
 ```bash
-# List all metric names
-promtool query labels --http.config.file="$HTTP_CONFIG" "$PROM_URL" __name__
+# List all metric names (the __name__ label)
+curl -sk -H "Authorization: Bearer $TOKEN" \
+  "$PROM_URL/api/v1/label/__name__/values" | jq -r '.data[]'
+
+# Grep for metrics related to a topic
+curl -sk -H "Authorization: Bearer $TOKEN" \
+  "$PROM_URL/api/v1/label/__name__/values" | jq -r '.data[]' | grep -i etcd
 
 # List all namespaces that have metrics
-promtool query labels --http.config.file="$HTTP_CONFIG" "$PROM_URL" namespace
+curl -sk -H "Authorization: Bearer $TOKEN" \
+  "$PROM_URL/api/v1/label/namespace/values" | jq -r '.data[]'
 
 # List pods for a specific metric
-promtool query labels --http.config.file="$HTTP_CONFIG" \
-  --match='container_cpu_usage_seconds_total' \
-  "$PROM_URL" pod
+curl -sk -G -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode 'match[]=container_cpu_usage_seconds_total' \
+  "$PROM_URL/api/v1/label/pod/values" | jq -r '.data[]'
 
-# List all label names (pass empty string)
-promtool query labels --http.config.file="$HTTP_CONFIG" "$PROM_URL" ""
+# List all label names
+curl -sk -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode 'match[]=up' \
+  "$PROM_URL/api/v1/labels" | jq -r '.data[]'
 ```
+
+Note the `-G` on the `label/<name>/values` example: that endpoint is GET-only on some servers, and `-G` converts `--data-urlencode` parameters into the URL query string.
 
 ---
 
-## Metric Analysis
+## Metric Metadata
 
-Analyze metric usage patterns (e.g., histogram bucket boundaries).
+Discover metric types and help strings — do this before writing PromQL against unfamiliar metrics.
 
-```bash
-promtool query analyze [flags]
+```
+GET /api/v1/metadata
 ```
 
-| Flag | Default | Description |
+| Parameter | Default | Description |
 |---|---|---|
-| `--server` | | Prometheus server URL (required) |
-| `--type` | `histogram` | Metric type to analyze |
-| `--duration` | `1h` | Time frame to analyze |
-| `--time` | now | Query time |
-| `--match` | | Series selector (required, repeatable) |
-| `--http.config.file` | | HTTP client config file |
+| `metric` | all | Restrict to one metric name |
+| `limit` | | Max number of metrics returned |
 
 ### Examples
 
 ```bash
-# Analyze histogram bucket distribution
-promtool query analyze \
-  --server="$PROM_URL" \
-  --http.config.file="$HTTP_CONFIG" \
-  --match='apiserver_request_duration_seconds_bucket' \
-  --duration=1h
+# Type and help for one metric
+curl -sk -G -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode 'metric=apiserver_request_duration_seconds' \
+  "$PROM_URL/api/v1/metadata" | jq '.data'
 
-# Analyze a specific histogram
-promtool query analyze \
-  --server="$PROM_URL" \
-  --http.config.file="$HTTP_CONFIG" \
-  --match='http_request_duration_seconds_bucket{handler="/api/v1/query"}' \
-  --duration=6h
+# Sample of all metadata (type, help) — large response, use limit
+curl -sk -G -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode 'limit=100' \
+  "$PROM_URL/api/v1/metadata" | jq '.data'
 ```
 
----
-
-## PromQL Formatting
-
-Pretty-print and manipulate PromQL expressions (requires `--experimental` flag).
-
-```bash
-# Format / pretty-print a query
-promtool --experimental promql format 'sum(rate(container_cpu_usage_seconds_total{namespace!=""}[5m])) by (namespace, pod)'
-
-# Add a label matcher to a query
-promtool --experimental promql label-matchers set \
-  'sum(rate(http_requests_total[5m])) by (code)' \
-  namespace myapp
-
-# Set a regex label matcher
-promtool --experimental promql label-matchers set -t '=~' \
-  'up' job 'kube.*'
-
-# Remove a label matcher
-promtool --experimental promql label-matchers delete \
-  'up{job="prometheus"}' job
-```
+Knowing the type matters: counters need `rate()`/`increase()`, gauges are used directly, histograms are queried via their `_bucket`/`_sum`/`_count` series with `histogram_quantile()`.
